@@ -1,12 +1,13 @@
 # Unifi-Timelapse
 
 This repository contains a Synology-friendly shell script for saving a snapshot
-from a UniFi Protect camera every 15 minutes.
+directly from a UniFi camera every 15 minutes.
 
 ## Files
 
-- `scripts/unifi_snapshot_capture.sh` - logs in to UniFi Protect, fetches a
-  camera JPEG snapshot, and saves it to a NAS folder with a timestamped name.
+- `scripts/unifi_snapshot_capture.sh` - fetches a JPEG snapshot directly from
+  the camera IP or snapshot URL and saves it to a NAS folder with a timestamped
+  name.
 
 ## Synology setup
 
@@ -26,17 +27,29 @@ from a UniFi Protect camera every 15 minutes.
    `/volume1/scripts/unifi_snapshot_capture.conf`:
 
    ```sh
-   UNIFI_HOST="192.168.1.1"
-   UNIFI_USERNAME="snapshot-user"
-   UNIFI_PASSWORD="change-me"
-   CAMERA_ID="64f000000000000000000000"
+   CAMERA_HOST="192.168.1.50"
+   CAMERA_SCHEME="http"
+   CAMERA_PATH="/snap.jpeg"
    OUTPUT_DIR="/volume1/photo/unifi"
    FILE_PREFIX="front-door"
    ```
 
-   Use a local UniFi OS user with the least permissions needed for Protect.
-   The `CAMERA_ID` can be found in the UniFi Protect web app URL when you open a
-   camera, or via the Protect API.
+   This accesses the camera directly, not the UNVR or UniFi Protect Console. If
+   your camera uses a different snapshot endpoint, set `CAMERA_SNAPSHOT_URL`
+   instead, for example:
+
+   ```sh
+   CAMERA_SNAPSHOT_URL="http://192.168.1.50/snap.jpeg"
+   OUTPUT_DIR="/volume1/photo/unifi"
+   FILE_PREFIX="front-door"
+   ```
+
+   If your camera requires login credentials, add:
+
+   ```sh
+   CAMERA_USERNAME="ubnt"
+   CAMERA_PASSWORD="change-me"
+   ```
 
 4. Test one capture:
 
@@ -71,16 +84,20 @@ from a UniFi Protect camera every 15 minutes.
 
 Required values:
 
-- `UNIFI_HOST` - UniFi Console hostname or IP address.
-- `UNIFI_USERNAME` - local UniFi OS username.
-- `UNIFI_PASSWORD` - local UniFi OS password.
-- `CAMERA_ID` - UniFi Protect camera ID.
+- `CAMERA_HOST` - camera hostname or IP address. Not required when
+  `CAMERA_SNAPSHOT_URL` is set.
 
 Optional values:
 
+- `CAMERA_SNAPSHOT_URL` - full direct snapshot URL. Overrides `CAMERA_HOST`.
+- `CAMERA_SCHEME` - `http` or `https`. Default: `http`.
+- `CAMERA_PORT` - optional camera port.
+- `CAMERA_PATH` - snapshot path. Default: `/snap.jpeg`.
+- `CAMERA_USERNAME` - optional camera username.
+- `CAMERA_PASSWORD` - optional camera password.
 - `OUTPUT_DIR` - destination folder. Default: `/volume1/unifi-snapshots`.
 - `INTERVAL_SECONDS` - capture interval for loop mode. Default: `900`.
 - `FILE_PREFIX` - filename prefix. Default: `unifi-camera`.
-- `UNIFI_SCHEME` - `https` or `http`. Default: `https`.
-- `UNIFI_PORT` - UniFi Console port. Default: `443`.
-- `INSECURE_TLS` - set to `1` for UniFi self-signed certificates. Default: `1`.
+- `INSECURE_TLS` - set to `1` for self-signed camera certificates. Default: `1`.
+- `CONNECT_TIMEOUT` - curl connect timeout in seconds. Default: `10`.
+- `MAX_TIME` - curl max request time in seconds. Default: `60`.
