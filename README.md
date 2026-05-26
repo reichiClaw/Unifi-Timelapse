@@ -32,6 +32,9 @@ directly from a UniFi camera every 15 minutes.
    CAMERA_PATH="/snap.jpeg"
    OUTPUT_DIR="/volume1/photo/unifi"
    FILE_PREFIX="front-door"
+   START_TIME="08:00"
+   END_TIME="18:00"
+   ACTIVE_DAYS="mon,tue,wed,thu,fri"
    ```
 
    This accesses the camera directly, not the UNVR or UniFi Protect Console. If
@@ -50,6 +53,18 @@ directly from a UniFi camera every 15 minutes.
    CAMERA_USERNAME="ubnt"
    CAMERA_PASSWORD="change-me"
    ```
+
+   To limit captures to certain times or days, set:
+
+   ```sh
+   START_TIME="08:00"
+   END_TIME="18:00"
+   ACTIVE_DAYS="mon,tue,wed,thu,fri"
+   ```
+
+   Time windows can also cross midnight, for example `START_TIME="22:00"`
+   and `END_TIME="06:00"`. Leave these values unset to capture every day and
+   at every time.
 
 4. Test one capture:
 
@@ -101,3 +116,9 @@ Optional values:
 - `INSECURE_TLS` - set to `1` for self-signed camera certificates. Default: `1`.
 - `CONNECT_TIMEOUT` - curl connect timeout in seconds. Default: `10`.
 - `MAX_TIME` - curl max request time in seconds. Default: `60`.
+- `START_TIME` - optional daily start time in `HH:MM` format.
+- `END_TIME` - optional daily end time in `HH:MM` format. Must be set together
+  with `START_TIME`.
+- `ACTIVE_DAYS` - optional comma- or space-separated allowed days. Supports
+  `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat` or numbers `0`-`7` where
+  `0` or `7` is Sunday.
