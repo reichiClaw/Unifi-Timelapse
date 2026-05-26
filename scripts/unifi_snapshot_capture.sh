@@ -107,7 +107,7 @@ normalize_day() {
     thu|thur|thurs|thursday|4) printf '%s' 4 ;;
     fri|friday|5) printf '%s' 5 ;;
     sat|saturday|6) printf '%s' 6 ;;
-    *) fail "Invalid day '$1'. Use names like mon,tue or numbers 0-6" ;;
+    *) fail "Invalid day '$1'. Use names like mon,tue or numbers 0-7" ;;
   esac
 }
 
