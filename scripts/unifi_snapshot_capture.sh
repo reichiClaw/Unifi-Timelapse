@@ -10,6 +10,9 @@ CAMERA_PATH="${CAMERA_PATH:-/snap.jpeg}"
 CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"
 MAX_TIME="${MAX_TIME:-60}"
 INSECURE_TLS="${INSECURE_TLS:-1}"
+START_TIME="${START_TIME:-}"
+END_TIME="${END_TIME:-}"
+ACTIVE_DAYS="${ACTIVE_DAYS:-}"
 ONCE=0
 temp_file=""
 
@@ -46,6 +49,11 @@ Optional config values:
   INSECURE_TLS         Set to 1 for self-signed camera certs. Default: 1
   CONNECT_TIMEOUT      Curl connect timeout in seconds. Default: 10
   MAX_TIME             Curl max request time in seconds. Default: 60
+  START_TIME           Optional daily start time, HH:MM.
+  END_TIME             Optional daily end time, HH:MM.
+  ACTIVE_DAYS          Optional days, for example mon,tue,wed,thu,fri.
+                       Supports sun,mon,tue,wed,thu,fri,sat and 0-7
+                       where 0 or 7 is Sunday.
 
 Example config:
   CAMERA_HOST="192.168.1.50"
@@ -65,6 +73,92 @@ fail() {
   exit 1
 }
 
+strip_leading_zeroes() {
+  stripped="$(printf '%s' "$1" | sed 's/^0*//')"
+  printf '%s' "${stripped:-0}"
+}
+
+time_to_minutes() {
+  value="$1"
+
+  case "$value" in
+    [0-2][0-9]:[0-5][0-9]) ;;
+    *) fail "Invalid time '$value'. Use HH:MM, for example 08:30" ;;
+  esac
+
+  hours="$(strip_leading_zeroes "${value%:*}")"
+  minutes="$(strip_leading_zeroes "${value#*:}")"
+
+  if [ "$hours" -gt 23 ]; then
+    fail "Invalid time '$value'. Hour must be between 00 and 23"
+  fi
+
+  printf '%s\n' "$((hours * 60 + minutes))"
+}
+
+normalize_day() {
+  value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+
+  case "$value" in
+    sun|sunday|0|7) printf '%s' 0 ;;
+    mon|monday|1) printf '%s' 1 ;;
+    tue|tues|tuesday|2) printf '%s' 2 ;;
+    wed|wednesday|3) printf '%s' 3 ;;
+    thu|thur|thurs|thursday|4) printf '%s' 4 ;;
+    fri|friday|5) printf '%s' 5 ;;
+    sat|saturday|6) printf '%s' 6 ;;
+    *) fail "Invalid day '$1'. Use names like mon,tue or numbers 0-6" ;;
+  esac
+}
+
+active_days_match_today() {
+  [ -n "$ACTIVE_DAYS" ] || return 0
+
+  today="$(date '+%w')"
+  old_ifs="$IFS"
+  IFS=', '
+  for day in $ACTIVE_DAYS; do
+    [ -n "$day" ] || continue
+    normalized_day="$(normalize_day "$day")"
+    if [ "$normalized_day" = "$today" ]; then
+      IFS="$old_ifs"
+      return 0
+    fi
+  done
+  IFS="$old_ifs"
+
+  return 1
+}
+
+active_time_window_match_now() {
+  [ -n "$START_TIME" ] || return 0
+
+  now_minutes="$(time_to_minutes "$(date '+%H:%M')")"
+  start_minutes="$(time_to_minutes "$START_TIME")"
+  end_minutes="$(time_to_minutes "$END_TIME")"
+
+  if [ "$start_minutes" -le "$end_minutes" ]; then
+    [ "$now_minutes" -ge "$start_minutes" ] && [ "$now_minutes" -le "$end_minutes" ]
+    return
+  fi
+
+  [ "$now_minutes" -ge "$start_minutes" ] || [ "$now_minutes" -le "$end_minutes" ]
+}
+
+schedule_allows_capture() {
+  if ! active_days_match_today; then
+    log "Skipping snapshot: today is not in ACTIVE_DAYS=$ACTIVE_DAYS"
+    return 1
+  fi
+
+  if ! active_time_window_match_now; then
+    log "Skipping snapshot: current time is outside START_TIME=$START_TIME END_TIME=$END_TIME"
+    return 1
+  fi
+
+  return 0
+}
+
 load_config() {
   if [ -n "${CONFIG_FILE:-}" ]; then
     [ -r "$CONFIG_FILE" ] || fail "Config file is not readable: $CONFIG_FILE"
@@ -81,6 +175,26 @@ require_config() {
   if { [ -n "${CAMERA_USERNAME:-}" ] && [ -z "${CAMERA_PASSWORD:-}" ]; } ||
     { [ -z "${CAMERA_USERNAME:-}" ] && [ -n "${CAMERA_PASSWORD:-}" ]; }; then
     fail "CAMERA_USERNAME and CAMERA_PASSWORD must be set together"
+  fi
+
+  if { [ -n "$START_TIME" ] && [ -z "$END_TIME" ]; } ||
+    { [ -z "$START_TIME" ] && [ -n "$END_TIME" ]; }; then
+    fail "START_TIME and END_TIME must be set together"
+  fi
+
+  if [ -n "$START_TIME" ]; then
+    time_to_minutes "$START_TIME" >/dev/null
+    time_to_minutes "$END_TIME" >/dev/null
+  fi
+
+  if [ -n "$ACTIVE_DAYS" ]; then
+    old_ifs="$IFS"
+    IFS=', '
+    for day in $ACTIVE_DAYS; do
+      [ -n "$day" ] || continue
+      normalize_day "$day" >/dev/null
+    done
+    IFS="$old_ifs"
   fi
 }
 
@@ -144,6 +258,8 @@ fetch_snapshot() {
 }
 
 capture_snapshot() {
+  schedule_allows_capture || return 0
+
   mkdir -p "$OUTPUT_DIR"
 
   timestamp="$(date '+%Y%m%d-%H%M%S')"
