@@ -32,6 +32,7 @@ directly from a UniFi camera every 15 minutes.
    CAMERA_PATH="/snap.jpeg"
    OUTPUT_DIR="/volume1/photo/unifi"
    FILE_PREFIX="front-door"
+   FILE_MODE="0644"
    START_TIME="08:00"
    END_TIME="18:00"
    ACTIVE_DAYS="mon,tue,wed,thu,fri"
@@ -117,6 +118,7 @@ Optional values:
 - `OUTPUT_DIR` - destination folder. Default: `/volume1/unifi-snapshots`.
 - `INTERVAL_SECONDS` - capture interval for loop mode. Default: `900`.
 - `FILE_PREFIX` - filename prefix. Default: `unifi-camera`.
+- `FILE_MODE` - saved snapshot file mode. Default: `0644`.
 - `INSECURE_TLS` - set to `1` for self-signed camera certificates. Default: `1`.
 - `CONNECT_TIMEOUT` - curl connect timeout in seconds. Default: `10`.
 - `MAX_TIME` - curl max request time in seconds. Default: `60`.
@@ -129,10 +131,18 @@ Optional values:
 - `LOG_FILE` - optional log file. Default:
   `OUTPUT_DIR/unifi_snapshot_capture.log`.
 
-Numeric configuration values are validated at startup. Snapshot responses must
-return HTTP 200, an `image/*` content type, and a recognizable image body
-signature before they are saved.
+## Runtime behavior
+
+The script validates configuration values at startup, including numeric values,
+`CAMERA_SCHEME`, `FILE_PREFIX`, and `FILE_MODE`.
+
+Snapshot responses must return HTTP 200 and a JPEG body before they are saved.
+The response `Content-Type` should be `image/*`; `application/octet-stream` or a
+missing content type are also accepted when the body has a valid JPEG signature.
 
 In loop mode, a failed snapshot attempt is logged and the script continues with
 the next interval. In `--once` mode, a failed snapshot exits with a non-zero
 status so Synology Task Scheduler can report the failed run.
+
+The script uses standard Synology-compatible tools: `sh`, `curl`, `awk`,
+`mktemp`, `od`, `sed`, and `tr`.
