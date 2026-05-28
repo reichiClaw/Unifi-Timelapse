@@ -1,4 +1,4 @@
-# Unifi-Timelapse
+# Unifi-Timelapse with Synology NAS
 
 This repository contains a Synology-friendly shell script for saving a snapshot
 directly from a UniFi camera every 15 minutes.
