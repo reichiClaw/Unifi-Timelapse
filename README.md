@@ -8,13 +8,16 @@ directly from a UniFi camera every 15 minutes.
 - `scripts/unifi_snapshot_capture.sh` - fetches a JPEG snapshot directly from
   the camera IP or snapshot URL and saves it to a NAS folder with a timestamped
   name.
+- `scripts/unifi-snapshot-capture.conf` - commented example configuration file
+  that can be copied and edited on the NAS.
 
 ## Synology setup
 
-1. Copy the script to your NAS, for example:
+1. Copy the script and example config to your NAS, for example:
 
    ```sh
    /volume1/scripts/unifi_snapshot_capture.sh
+   /volume1/scripts/unifi-snapshot-capture.conf
    ```
 
 2. Make it executable:
@@ -23,8 +26,15 @@ directly from a UniFi camera every 15 minutes.
    chmod +x /volume1/scripts/unifi_snapshot_capture.sh
    ```
 
-3. Create a config file, for example
-   `/volume1/scripts/unifi_snapshot_capture.conf`:
+3. Copy the example config file to your NAS and edit it:
+
+   ```sh
+   cp /volume1/scripts/unifi-snapshot-capture.conf \
+     /volume1/scripts/unifi_snapshot_capture.conf
+   ```
+
+   The checked-in `scripts/unifi-snapshot-capture.conf` contains comments for
+   every supported setting. A minimal config looks like this:
 
    ```sh
    CAMERA_HOST="192.168.1.50"
