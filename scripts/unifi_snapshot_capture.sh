@@ -13,11 +13,13 @@ INSECURE_TLS="${INSECURE_TLS:-1}"
 START_TIME="${START_TIME:-}"
 END_TIME="${END_TIME:-}"
 ACTIVE_DAYS="${ACTIVE_DAYS:-}"
+LOG_FILE="${LOG_FILE:-}"
 ONCE=0
 temp_file=""
+header_file=""
 
 cleanup_temp_files() {
-  rm -f "${temp_file:-}"
+  rm -f "${temp_file:-}" "${header_file:-}"
 }
 
 trap 'cleanup_temp_files' EXIT
@@ -54,6 +56,8 @@ Optional config values:
   ACTIVE_DAYS          Optional days, for example mon,tue,wed,thu,fri.
                        Supports sun,mon,tue,wed,thu,fri,sat and 0-7
                        where 0 or 7 is Sunday.
+  LOG_FILE             Optional log file. Default:
+                       OUTPUT_DIR/unifi_snapshot_capture.log
 
 Example config:
   CAMERA_HOST="192.168.1.50"
@@ -65,7 +69,19 @@ USAGE
 }
 
 log() {
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+  log_line="$(printf '%s %s' "$(date '+%Y-%m-%d %H:%M:%S')" "$*")"
+  printf '%s\n' "$log_line"
+
+  if [ -n "${LOG_FILE:-}" ]; then
+    log_dir="${LOG_FILE%/*}"
+    if [ "$log_dir" = "$LOG_FILE" ]; then
+      (printf '%s\n' "$log_line" >>"$LOG_FILE") 2>/dev/null || true
+    elif mkdir -p "$log_dir" 2>/dev/null; then
+      (printf '%s\n' "$log_line" >>"$LOG_FILE") 2>/dev/null || true
+    elif [ -z "$log_dir" ]; then
+      (printf '%s\n' "$log_line" >>"$LOG_FILE") 2>/dev/null || true
+    fi
+  fi
 }
 
 fail() {
@@ -76,6 +92,28 @@ fail() {
 strip_leading_zeroes() {
   stripped="$(printf '%s' "$1" | sed 's/^0*//')"
   printf '%s' "${stripped:-0}"
+}
+
+require_positive_integer() {
+  name="$1"
+  value="$2"
+
+  case "$value" in
+    ''|*[!0-9]*) fail "$name must be a positive integer" ;;
+  esac
+
+  if [ "$value" -le 0 ]; then
+    fail "$name must be greater than 0"
+  fi
+}
+
+require_non_negative_integer() {
+  name="$1"
+  value="$2"
+
+  case "$value" in
+    ''|*[!0-9]*) fail "$name must be 0 or 1" ;;
+  esac
 }
 
 time_to_minutes() {
@@ -114,13 +152,13 @@ normalize_day() {
 active_days_match_today() {
   [ -n "$ACTIVE_DAYS" ] || return 0
 
-  today="$(date '+%w')"
+  schedule_day="$1"
   old_ifs="$IFS"
   IFS=', '
   for day in $ACTIVE_DAYS; do
     [ -n "$day" ] || continue
     normalized_day="$(normalize_day "$day")"
-    if [ "$normalized_day" = "$today" ]; then
+    if [ "$normalized_day" = "$schedule_day" ]; then
       IFS="$old_ifs"
       return 0
     fi
@@ -130,10 +168,11 @@ active_days_match_today() {
   return 1
 }
 
-active_time_window_match_now() {
+active_time_window_match_minutes() {
+  now_minutes="$1"
+
   [ -n "$START_TIME" ] || return 0
 
-  now_minutes="$(time_to_minutes "$(date '+%H:%M')")"
   start_minutes="$(time_to_minutes "$START_TIME")"
   end_minutes="$(time_to_minutes "$END_TIME")"
 
@@ -145,13 +184,37 @@ active_time_window_match_now() {
   [ "$now_minutes" -ge "$start_minutes" ] || [ "$now_minutes" -le "$end_minutes" ]
 }
 
+schedule_day_for_window() {
+  today="$1"
+  now_minutes="$2"
+
+  [ -n "$START_TIME" ] || {
+    printf '%s' "$today"
+    return
+  }
+
+  start_minutes="$(time_to_minutes "$START_TIME")"
+  end_minutes="$(time_to_minutes "$END_TIME")"
+
+  if [ "$start_minutes" -gt "$end_minutes" ] && [ "$now_minutes" -le "$end_minutes" ]; then
+    printf '%s' "$(((today + 6) % 7))"
+    return
+  fi
+
+  printf '%s' "$today"
+}
+
 schedule_allows_capture() {
-  if ! active_days_match_today; then
-    log "Skipping snapshot: today is not in ACTIVE_DAYS=$ACTIVE_DAYS"
+  now_minutes="$(time_to_minutes "$(date '+%H:%M')")"
+  today="$(date '+%w')"
+  schedule_day="$(schedule_day_for_window "$today" "$now_minutes")"
+
+  if ! active_days_match_today "$schedule_day"; then
+    log "Skipping snapshot: schedule day $schedule_day is not in ACTIVE_DAYS=$ACTIVE_DAYS"
     return 1
   fi
 
-  if ! active_time_window_match_now; then
+  if ! active_time_window_match_minutes "$now_minutes"; then
     log "Skipping snapshot: current time is outside START_TIME=$START_TIME END_TIME=$END_TIME"
     return 1
   fi
@@ -167,6 +230,12 @@ load_config() {
   fi
 }
 
+set_default_log_file() {
+  if [ -z "${LOG_FILE:-}" ]; then
+    LOG_FILE="$OUTPUT_DIR/unifi_snapshot_capture.log"
+  fi
+}
+
 require_config() {
   if [ -z "${CAMERA_SNAPSHOT_URL:-}" ] && [ -z "${CAMERA_HOST:-}" ]; then
     fail "CAMERA_HOST or CAMERA_SNAPSHOT_URL is required"
@@ -175,6 +244,22 @@ require_config() {
   if { [ -n "${CAMERA_USERNAME:-}" ] && [ -z "${CAMERA_PASSWORD:-}" ]; } ||
     { [ -z "${CAMERA_USERNAME:-}" ] && [ -n "${CAMERA_PASSWORD:-}" ]; }; then
     fail "CAMERA_USERNAME and CAMERA_PASSWORD must be set together"
+  fi
+
+  require_positive_integer "INTERVAL_SECONDS" "$INTERVAL_SECONDS"
+  require_positive_integer "CONNECT_TIMEOUT" "$CONNECT_TIMEOUT"
+  require_positive_integer "MAX_TIME" "$MAX_TIME"
+
+  if [ -n "${CAMERA_PORT:-}" ]; then
+    require_positive_integer "CAMERA_PORT" "$CAMERA_PORT"
+    if [ "$CAMERA_PORT" -gt 65535 ]; then
+      fail "CAMERA_PORT must be between 1 and 65535"
+    fi
+  fi
+
+  require_non_negative_integer "INSECURE_TLS" "$INSECURE_TLS"
+  if [ "$INSECURE_TLS" -ne 0 ] && [ "$INSECURE_TLS" -ne 1 ]; then
+    fail "INSECURE_TLS must be 0 or 1"
   fi
 
   if { [ -n "$START_TIME" ] && [ -z "$END_TIME" ]; } ||
@@ -196,6 +281,12 @@ require_config() {
     done
     IFS="$old_ifs"
   fi
+}
+
+capture_error() {
+  log "ERROR: $*"
+  cleanup_temp_files
+  return 1
 }
 
 build_snapshot_url() {
@@ -221,6 +312,7 @@ build_snapshot_url() {
 fetch_snapshot() {
   snapshot_url="$1"
   output_path="$2"
+  header_path="$3"
 
   if [ "${INSECURE_TLS:-0}" = "1" ] && [ -n "${CAMERA_USERNAME:-}" ]; then
     curl -sS -L -k \
@@ -228,6 +320,7 @@ fetch_snapshot() {
       --max-time "$MAX_TIME" \
       --anyauth \
       --user "$CAMERA_USERNAME:$CAMERA_PASSWORD" \
+      -D "$header_path" \
       -o "$output_path" \
       -w "%{http_code}" \
       "$snapshot_url"
@@ -237,6 +330,7 @@ fetch_snapshot() {
       --max-time "$MAX_TIME" \
       --anyauth \
       --user "$CAMERA_USERNAME:$CAMERA_PASSWORD" \
+      -D "$header_path" \
       -o "$output_path" \
       -w "%{http_code}" \
       "$snapshot_url"
@@ -244,6 +338,7 @@ fetch_snapshot() {
     curl -sS -L -k \
       --connect-timeout "$CONNECT_TIMEOUT" \
       --max-time "$MAX_TIME" \
+      -D "$header_path" \
       -o "$output_path" \
       -w "%{http_code}" \
       "$snapshot_url"
@@ -251,38 +346,95 @@ fetch_snapshot() {
     curl -sS -L \
       --connect-timeout "$CONNECT_TIMEOUT" \
       --max-time "$MAX_TIME" \
+      -D "$header_path" \
       -o "$output_path" \
       -w "%{http_code}" \
       "$snapshot_url"
   fi
 }
 
+content_type_is_image() {
+  content_type="$1"
+
+  case "$(printf '%s' "$content_type" | tr '[:upper:]' '[:lower:]')" in
+    image/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+file_has_image_signature() {
+  image_type="$(
+    od -An -tx1 -N12 "$1" 2>/dev/null |
+      tr -d ' \n'
+  )"
+
+  case "$image_type" in
+    ffd8ff*) return 0 ;;                 # JPEG
+    89504e470d0a1a0a*) return 0 ;;       # PNG
+    474946383761*|474946383961*) return 0 ;; # GIF
+    52494646????????57454250*) return 0 ;;   # WebP
+    *) return 1 ;;
+  esac
+}
+
 capture_snapshot() {
   schedule_allows_capture || return 0
 
-  mkdir -p "$OUTPUT_DIR"
+  mkdir -p "$OUTPUT_DIR" || {
+    capture_error "Unable to create output directory: $OUTPUT_DIR"
+    return 1
+  }
 
   timestamp="$(date '+%Y%m%d-%H%M%S')"
   output_file="$OUTPUT_DIR/${FILE_PREFIX}_${timestamp}.jpg"
-  temp_file="$output_file.tmp"
+  temp_file="$(mktemp "${TMPDIR:-/tmp}/unifi_snapshot_capture.XXXXXX")" || {
+    capture_error "Unable to create temporary snapshot file"
+    return 1
+  }
+  header_file="$(mktemp "${TMPDIR:-/tmp}/unifi_snapshot_headers.XXXXXX")" || {
+    capture_error "Unable to create temporary header file"
+    return 1
+  }
   snapshot_url="$(build_snapshot_url)"
-  snapshot_code="$(fetch_snapshot "$snapshot_url" "$temp_file")" ||
-    fail "Unable to fetch camera snapshot from $snapshot_url"
+  snapshot_code="$(fetch_snapshot "$snapshot_url" "$temp_file" "$header_file")" || {
+    capture_error "Unable to fetch camera snapshot from $snapshot_url"
+    return 1
+  }
 
   case "$snapshot_code" in
     200) ;;
     *)
-      rm -f "$temp_file"
-      fail "Snapshot request failed with HTTP $snapshot_code"
+      capture_error "Snapshot request failed with HTTP $snapshot_code"
+      return 1
       ;;
   esac
 
   if [ ! -s "$temp_file" ]; then
-    rm -f "$temp_file"
-    fail "Snapshot response was empty"
+    capture_error "Snapshot response was empty"
+    return 1
   fi
 
-  mv "$temp_file" "$output_file"
+  content_type="$(
+    awk 'tolower($0) ~ /^content-type:/ {
+      sub(/\r$/, "", $0)
+      sub(/^[^:]*:[[:space:]]*/, "", $0)
+      value = $0
+    } END { print value }' "$header_file"
+  )"
+  if ! content_type_is_image "$content_type"; then
+    capture_error "Snapshot response was not an image Content-Type: ${content_type:-missing}"
+    return 1
+  fi
+
+  if ! file_has_image_signature "$temp_file"; then
+    capture_error "Snapshot response body did not look like an image"
+    return 1
+  fi
+
+  mv "$temp_file" "$output_file" || {
+    capture_error "Unable to save snapshot to $output_file"
+    return 1
+  }
   log "Saved snapshot: $output_file"
   cleanup_temp_files
 }
@@ -310,6 +462,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 load_config
+set_default_log_file
 require_config
 
 if [ "$ONCE" = "1" ]; then
@@ -319,6 +472,8 @@ fi
 
 log "Starting direct camera snapshot capture every ${INTERVAL_SECONDS} seconds"
 while :; do
-  capture_snapshot
+  if ! capture_snapshot; then
+    log "Snapshot attempt failed; continuing loop"
+  fi
   sleep "$INTERVAL_SECONDS"
 done
