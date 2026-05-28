@@ -35,6 +35,7 @@ directly from a UniFi camera every 15 minutes.
    START_TIME="08:00"
    END_TIME="18:00"
    ACTIVE_DAYS="mon,tue,wed,thu,fri"
+   LOG_FILE="/volume1/photo/unifi/unifi_snapshot_capture.log"
    ```
 
    This accesses the camera directly, not the UNVR or UniFi Protect Console. If
@@ -63,8 +64,11 @@ directly from a UniFi camera every 15 minutes.
    ```
 
    Time windows can also cross midnight, for example `START_TIME="22:00"`
-   and `END_TIME="06:00"`. Leave these values unset to capture every day and
-   at every time.
+   and `END_TIME="06:00"`. For overnight windows, the after-midnight part uses
+   the previous day's schedule. For example, `ACTIVE_DAYS="mon"` with
+   `START_TIME="22:00"` and `END_TIME="06:00"` captures Monday 22:00-23:59 and
+   Tuesday 00:00-06:00. Leave these values unset to capture every day and at
+   every time.
 
 4. Test one capture:
 
@@ -122,3 +126,13 @@ Optional values:
 - `ACTIVE_DAYS` - optional comma- or space-separated allowed days. Supports
   `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat` or numbers `0`-`7` where
   `0` or `7` is Sunday.
+- `LOG_FILE` - optional log file. Default:
+  `OUTPUT_DIR/unifi_snapshot_capture.log`.
+
+Numeric configuration values are validated at startup. Snapshot responses must
+return HTTP 200, an `image/*` content type, and a recognizable image body
+signature before they are saved.
+
+In loop mode, a failed snapshot attempt is logged and the script continues with
+the next interval. In `--once` mode, a failed snapshot exits with a non-zero
+status so Synology Task Scheduler can report the failed run.
