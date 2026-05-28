@@ -3,6 +3,10 @@
 This repository contains a Synology-friendly shell script for saving a snapshot
 directly from a UniFi camera every 15 minutes.
 
+##  TL;DR -> Quick Setup for the Tech savy
+
+Copy both files to a folder, change the config, set up the synology scheduler or run the sript in a loop and see the pictures incoming.
+
 ## Files
 
 - `scripts/unifi_snapshot_capture.sh` - fetches a JPEG snapshot directly from
