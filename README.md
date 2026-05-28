@@ -74,7 +74,7 @@ directly from a UniFi camera every 15 minutes.
 4. Test one capture:
 
    ```sh
-   /volume1/scripts/unifi_snapshot_capture.sh \
+   bash /volume1/scripts/unifi_snapshot_capture.sh \
      --config /volume1/scripts/unifi_snapshot_capture.conf \
      --once
    ```
@@ -84,7 +84,7 @@ directly from a UniFi camera every 15 minutes.
    Option A: let the script loop forever:
 
    ```sh
-   /volume1/scripts/unifi_snapshot_capture.sh \
+   bash /volume1/scripts/unifi_snapshot_capture.sh \
      --config /volume1/scripts/unifi_snapshot_capture.conf
    ```
 
@@ -95,7 +95,7 @@ directly from a UniFi camera every 15 minutes.
    - User-defined script:
 
      ```sh
-     /volume1/scripts/unifi_snapshot_capture.sh \
+     bash /volume1/scripts/unifi_snapshot_capture.sh \
        --config /volume1/scripts/unifi_snapshot_capture.conf \
        --once
      ```
